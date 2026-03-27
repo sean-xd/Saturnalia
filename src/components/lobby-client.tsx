@@ -123,6 +123,7 @@ export function LobbyClient({
   const primaryTabLabel = viewer ? "Session" : "Join";
   const activeRound = lobby.currentRound;
   const totalMoney = lobby.players.reduce((total, player) => total + player.balance, 0);
+  const totalReturn = lobby.totalRoundMoneyAllocated - totalMoney;
   const bettingCountdown =
     activeRound?.game === "dice" && activeRound.phase === "betting"
       ? secondsRemaining(activeRound.bettingEndsAt, now)
@@ -937,7 +938,7 @@ export function LobbyClient({
               <span className={styles.statusBadge}>{lobby.status}</span>
               <div className={styles.statusMeta}>
                 <span>{lobby.players.length} player{lobby.players.length === 1 ? "" : "s"}</span>
-                <span>Total: {formatMoney(totalMoney)}</span>
+                <span>Total Return: {formatMoney(totalReturn)}</span>
               </div>
             </div>
 

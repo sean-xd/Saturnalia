@@ -78,6 +78,7 @@ export type LobbySnapshot = {
   code: string;
   hostSessionId: string;
   players: LobbyPlayer[];
+  totalRoundMoneyAllocated: number;
   status: LobbyStatus;
   createdAt: string;
   updatedAt: string;
@@ -237,6 +238,7 @@ function normalizeLobbySnapshot(rawLobby: LobbySnapshot): { lobby: LobbySnapshot
   const lobby: LobbySnapshot = {
     ...rawLobby,
     players,
+    totalRoundMoneyAllocated: rawLobby.totalRoundMoneyAllocated ?? 0,
     currentRound:
       rawLobby.currentRound == null
         ? null
@@ -262,6 +264,7 @@ function normalizeLobbySnapshot(rawLobby: LobbySnapshot): { lobby: LobbySnapshot
   };
 
   if (
+    rawLobby.totalRoundMoneyAllocated === undefined ||
     rawLobby.currentRound === undefined ||
     (rawLobby.currentRound?.game === "dice" &&
       (rawLobby.currentRound.cheatersPercent === undefined ||
@@ -523,6 +526,7 @@ export async function createLobby(hostSessionId: string, displayName?: string): 
       code,
       hostSessionId,
       players: [createPlayer(hostSessionId, hostDisplayName, true, now)],
+      totalRoundMoneyAllocated: 0,
       status: "waiting",
       createdAt: now,
       updatedAt: now,
@@ -697,6 +701,7 @@ export async function startGameRound(
   const nextLobby: LobbySnapshot = {
     ...lobby,
     players,
+    totalRoundMoneyAllocated: lobby.totalRoundMoneyAllocated + addMoney * lobby.players.length,
     currentRound,
     updatedAt: now,
   };
