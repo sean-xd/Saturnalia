@@ -185,7 +185,7 @@ export function LobbyClient({
   }, []);
 
   const applyLobbyUpdate = useCallback(
-    (nextLobby: LobbySnapshot, serverTime = nextLobby.updatedAt) => {
+    (nextLobby: LobbySnapshot, serverTime?: string) => {
       syncServerClock(serverTime);
       setLobby(nextLobby);
     },
@@ -414,14 +414,14 @@ export function LobbyClient({
 
         const payload = (await response.json()) as
           | { deleted: true; redirectUrl: string }
-          | { deleted: false; lobby: LobbySnapshot };
+          | { deleted: false; lobby: LobbySnapshot; serverTime: string };
 
         if (payload.deleted) {
           router.push(payload.redirectUrl);
           return;
         }
 
-        applyLobbyUpdate(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
         router.refresh();
         setBusy("idle");
       })();
