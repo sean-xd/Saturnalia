@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import Pusher from "pusher-js";
@@ -12,6 +12,7 @@ import type { DiceResult, DiceRound, GameType, LobbySnapshot, RouletteRound } fr
 
 type LobbyClientProps = {
   initialLobby: LobbySnapshot;
+  initialServerTime: string;
   initialSessionId?: string;
   shareUrl: string;
   realtimeEnabled: boolean;
@@ -19,6 +20,7 @@ type LobbyClientProps = {
 
 type LobbyPayload = {
   lobby: LobbySnapshot;
+  serverTime?: string;
 };
 
 type RoundStageId = "setup" | "bet" | "roll" | "results";
@@ -80,12 +82,17 @@ function renderDie(value: number) {
 
 export function LobbyClient({
   initialLobby,
+  initialServerTime,
   initialSessionId,
   shareUrl,
   realtimeEnabled,
 }: LobbyClientProps) {
   const router = useRouter();
+  const initialServerTimeMs = new Date(initialServerTime).getTime();
   const [lobby, setLobby] = useState(initialLobby);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(() =>
+    Number.isNaN(initialServerTimeMs) ? 0 : initialServerTimeMs - Date.now(),
+  );
   const [joinName, setJoinName] = useState("Player");
   const [busy, setBusy] = useState<"idle" | "join" | "leave" | "start" | "start-round" | "bet">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +113,7 @@ export function LobbyClient({
       edgePercent: "0",
     },
   });
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => (Number.isNaN(initialServerTimeMs) ? Date.now() : initialServerTimeMs));
   const viewer = initialSessionId
     ? lobby.players.find((player) => player.sessionId === initialSessionId)
     : undefined;
@@ -161,6 +168,30 @@ export function LobbyClient({
     viewerHasBet,
   });
 
+  const syncServerClock = useCallback((serverTime: string | undefined) => {
+    if (!serverTime) {
+      return;
+    }
+
+    const serverTimeMs = new Date(serverTime).getTime();
+
+    if (Number.isNaN(serverTimeMs)) {
+      return;
+    }
+
+    const nextOffsetMs = serverTimeMs - Date.now();
+    setServerClockOffsetMs(nextOffsetMs);
+    setNow(serverTimeMs);
+  }, []);
+
+  const applyLobbyUpdate = useCallback(
+    (nextLobby: LobbySnapshot, serverTime = nextLobby.updatedAt) => {
+      syncServerClock(serverTime);
+      setLobby(nextLobby);
+    },
+    [syncServerClock],
+  );
+
   useEffect(() => {
     if (!realtimeEnabled || !initialSessionId) {
       return undefined;
@@ -180,7 +211,7 @@ export function LobbyClient({
 
     const channel = pusher.subscribe(`private-lobby-${lobby.lobbyId}`);
     const handleUpdate = (payload: LobbyPayload) => {
-      setLobby(payload.lobby);
+      applyLobbyUpdate(payload.lobby, payload.serverTime);
     };
 
     channel.bind("lobby.updated", handleUpdate);
@@ -190,7 +221,7 @@ export function LobbyClient({
       pusher.unsubscribe(`private-lobby-${lobby.lobbyId}`);
       pusher.disconnect();
     };
-  }, [initialSessionId, lobby.lobbyId, realtimeEnabled]);
+  }, [applyLobbyUpdate, initialSessionId, lobby.lobbyId, realtimeEnabled]);
 
   useEffect(() => {
     if (!sidebarOpen) {
@@ -220,13 +251,13 @@ export function LobbyClient({
     }
 
     const intervalId = window.setInterval(() => {
-      setNow(Date.now());
+      setNow(Date.now() + serverClockOffsetMs);
     }, 1000);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [lobby.status]);
+  }, [lobby.status, serverClockOffsetMs]);
 
   useEffect(() => {
     if (!activeRound) {
@@ -247,7 +278,7 @@ export function LobbyClient({
       const payload = (await response.json()) as LobbyPayload;
 
       if (!cancelled) {
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
       }
     };
 
@@ -261,7 +292,7 @@ export function LobbyClient({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeRound, lobby.lobbyId]);
+  }, [activeRound, applyLobbyUpdate, lobby.lobbyId]);
 
   function updateSettings(
     game: GameType,
@@ -300,7 +331,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
         router.refresh();
         setBusy("idle");
       })();
@@ -336,7 +367,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
         setBusy("idle");
       })();
     });
@@ -359,7 +390,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
         setBusy("idle");
       })();
     });
@@ -390,7 +421,7 @@ export function LobbyClient({
           return;
         }
 
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby);
         router.refresh();
         setBusy("idle");
       })();
@@ -414,7 +445,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        setLobby(payload.lobby);
+        applyLobbyUpdate(payload.lobby, payload.serverTime);
         setBusy("idle");
       })();
     });

@@ -14,11 +14,11 @@ export async function GET(_request: Request, context: RouteContext) {
 
     if (result.changed) {
       await publishLobbyUpdated(result.lobby);
-      return Response.json({ lobby: result.lobby, synchronized: true });
+      return Response.json({ lobby: result.lobby, serverTime: new Date().toISOString(), synchronized: true });
     }
 
     const lobby = await getLobbyById(lobbyId);
-    return Response.json({ lobby, synchronized: false });
+    return Response.json({ lobby, serverTime: new Date().toISOString(), synchronized: false });
   } catch (error) {
     return lobbyErrorToResponse(error);
   }

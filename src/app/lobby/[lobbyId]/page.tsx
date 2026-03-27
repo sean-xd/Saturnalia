@@ -48,6 +48,7 @@ export default async function LobbyPage({ params }: LobbyPageProps) {
   return (
     <LobbyClient
       initialLobby={lobby}
+      initialServerTime={new Date().toISOString()}
       initialSessionId={sessionId}
       realtimeEnabled={isRealtimeEnabled()}
       shareUrl={`${origin}/lobby/${lobby.lobbyId}`}
