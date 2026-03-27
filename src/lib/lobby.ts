@@ -701,7 +701,7 @@ export async function startGameRound(
   const nextLobby: LobbySnapshot = {
     ...lobby,
     players,
-    totalRoundMoneyAllocated: lobby.totalRoundMoneyAllocated + addMoney * lobby.players.length,
+    totalRoundMoneyAllocated: lobby.totalRoundMoneyAllocated + addMoney * players.length,
     currentRound,
     updatedAt: now,
   };
