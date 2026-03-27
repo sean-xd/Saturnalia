@@ -16,7 +16,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     await publishLobbyUpdated(lobby);
 
-    return Response.json({ lobby });
+    return Response.json({ lobby, serverTime: new Date().toISOString() });
   } catch (error) {
     return lobbyErrorToResponse(error);
   }

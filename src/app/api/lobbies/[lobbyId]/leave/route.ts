@@ -26,6 +26,7 @@ export async function POST(_request: Request, context: RouteContext) {
     return Response.json({
       deleted: false,
       lobby: result.lobby,
+      serverTime: new Date().toISOString(),
     });
   } catch (error) {
     return lobbyErrorToResponse(error);
