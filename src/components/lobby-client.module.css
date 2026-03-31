@@ -920,6 +920,13 @@
   font-weight: 700;
 }
 
+.rouletteBetControlBody small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
 .rouletteBetStepper {
   position: absolute;
   top: 0;
