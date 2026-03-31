@@ -41,6 +41,7 @@ type LobbyClientProps = {
 
 type LobbyPayload = {
   lobby: LobbySummary;
+  completedRounds?: CompletedLobbyRound[];
   serverTime?: string;
 };
 
@@ -81,7 +82,7 @@ type RoundSettingsState = {
 const DICE_STAGE_DURATION_MS = 15_000;
 const DICE_REVEAL_MILESTONES_MS = [900, 2_800, 4_900, 7_000, 9_200];
 const DIE_ROLL_FRAME_MS = 90;
-const CLIENT_HISTORY_LIMIT = 8;
+const CLIENT_HISTORY_LIMIT = 20;
 const DEVELOPMENT_MULTI_ROUND_SIMULATION_COUNT = 10;
 const ROULETTE_SPIN_DURATION_MS = 10_000;
 const ROULETTE_RESULTS_REVEAL_DELAY_MS = 1_200;
@@ -351,6 +352,10 @@ function getCompletedRound(round: LobbySummary["currentRound"]): CompletedLobbyR
 function appendCompletedRound(history: CompletedLobbyRound[], round: CompletedLobbyRound) {
   const nextHistory = [round, ...history.filter((entry) => entry.id !== round.id)];
   return nextHistory.slice(0, CLIENT_HISTORY_LIMIT);
+}
+
+function appendCompletedRounds(history: CompletedLobbyRound[], rounds: CompletedLobbyRound[]) {
+  return rounds.reduce((current, round) => appendCompletedRound(current, round), history);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -631,7 +636,7 @@ export function LobbyClient({
   const viewerRouletteBetKeysRef = useRef<string[]>(viewerRouletteBetKeys);
   const rouletteSubmitTimeoutRef = useRef<number | null>(null);
   const submittedRouletteRoundIdRef = useRef<string | null>(null);
-  const applyLobbyUpdateRef = useRef<(nextLobby: LobbySummary, serverTime?: string) => void>(() => {});
+  const applyLobbyUpdateRef = useRef<(nextLobby: LobbySummary, serverTime?: string, completedRounds?: CompletedLobbyRound[]) => void>(() => {});
   const submitLockedRouletteBetRef = useRef<(round: RouletteRound) => void>(() => {});
 
   const syncServerClock = useCallback((serverTime: string | undefined) => {
@@ -650,8 +655,8 @@ export function LobbyClient({
     setNow(serverTimeMs);
   }, []);
 
-  const applyLobbyUpdate = useCallback((nextLobby: LobbySummary, serverTime?: string) => {
-    applyLobbyUpdateRef.current(nextLobby, serverTime);
+  const applyLobbyUpdate = useCallback((nextLobby: LobbySummary, serverTime?: string, completedRounds?: CompletedLobbyRound[]) => {
+    applyLobbyUpdateRef.current(nextLobby, serverTime, completedRounds);
   }, []);
 
   const fetchLobbySnapshot = useCallback(async () => {
@@ -836,9 +841,13 @@ export function LobbyClient({
   }, [applyLobbyUpdate, fetchLobbySnapshot, lobbyPollKey]);
 
   useEffect(() => {
-    applyLobbyUpdateRef.current = (nextLobby: LobbySummary, serverTime?: string) => {
+    applyLobbyUpdateRef.current = (nextLobby: LobbySummary, serverTime?: string, completedRounds?: CompletedLobbyRound[]) => {
       syncServerClock(serverTime);
       const completedRound = getCompletedRound(nextLobby.currentRound);
+
+      if (completedRounds && completedRounds.length > 0) {
+        setRoundHistory((current) => appendCompletedRounds(current, completedRounds));
+      }
 
       if (completedRound) {
         setRoundHistory((current) => appendCompletedRound(current, completedRound));
@@ -902,7 +911,7 @@ export function LobbyClient({
           }
 
           const payload = (await response.json()) as LobbyPayload;
-          applyLobbyUpdate(payload.lobby, payload.serverTime);
+          applyLobbyUpdate(payload.lobby, payload.serverTime, payload.completedRounds);
         })();
       });
     };
@@ -1132,7 +1141,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        applyLobbyUpdate(payload.lobby, payload.serverTime);
+        applyLobbyUpdate(payload.lobby, payload.serverTime, payload.completedRounds);
         setRouletteBetSelectionDraft(null);
         setBusy("idle");
       })();
@@ -1178,7 +1187,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        applyLobbyUpdate(payload.lobby, payload.serverTime);
+        applyLobbyUpdate(payload.lobby, payload.serverTime, payload.completedRounds);
         setRouletteBetSelectionDraft(null);
         setBusy("idle");
       })();
@@ -1202,7 +1211,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        applyLobbyUpdate(payload.lobby, payload.serverTime);
+        applyLobbyUpdate(payload.lobby, payload.serverTime, payload.completedRounds);
         setBusy("idle");
       })();
     });
@@ -1225,7 +1234,7 @@ export function LobbyClient({
         }
 
         const payload = (await response.json()) as LobbyPayload;
-        applyLobbyUpdate(payload.lobby, payload.serverTime);
+        applyLobbyUpdate(payload.lobby, payload.serverTime, payload.completedRounds);
         setBusy("idle");
       })();
     });

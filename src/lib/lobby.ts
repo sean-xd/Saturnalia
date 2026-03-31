@@ -218,6 +218,7 @@ const ROULETTE_BETTING_GRACE_MS = 3_000;
 const ROULETTE_SPIN_DURATION_MS = 10_000;
 const ROULETTE_RESULTS_DURATION_MS = 15_000;
 const DICE_RULES = "All players will roll 4 dice. Player(s) with the highest score split the prize.";
+const SIMULATION_SESSION_PREFIX = "sim:";
 
 let redisClient: Redis | undefined;
 
@@ -643,6 +644,72 @@ function createPlayer(sessionId: string, displayName: string, isHost: boolean, n
   };
 }
 
+function isSimulatedSessionId(sessionId: string) {
+  return sessionId.startsWith(SIMULATION_SESSION_PREFIX);
+}
+
+function getSimulationSessionId(lobbyId: string, index: number) {
+  return `${SIMULATION_SESSION_PREFIX}${lobbyId}:${index}`;
+}
+
+function buildStartedRoundLobby(lobby: LobbySnapshot, input: StartRoundInput, now: string): LobbySnapshot {
+  const addMoney = toNonNegativeInteger(input.addMoney, "Add money");
+  const minimumBet = toNonNegativeInteger(input.minimumBet, "Minimum bet");
+  const cheatersPercent = input.game === "dice" ? toPercentage(input.cheatersPercent, "Cheaters") : 0;
+  const edgePercent = input.game === "dice" ? toPercentage(input.edgePercent, "Edge") : 0;
+  const zeroes = input.game === "roulette" ? toZeroCount(input.zeroes) : 0;
+  const betComplexity = input.game === "roulette" ? input.betComplexity : "simple";
+  const players = creditAllPlayers(lobby.players, addMoney);
+
+  const currentRound: LobbyRound =
+    input.game === "dice"
+      ? {
+          id: randomUUID(),
+          game: "dice",
+          phase: "betting",
+          addMoney,
+          minimumBet,
+          cheatersPercent,
+          edgePercent,
+          startedAt: now,
+          bettingEndsAt: addMilliseconds(now, BETTING_DURATION_MS),
+          resultsEndsAt: null,
+          rules: DICE_RULES,
+          bets: [],
+          results: [],
+          pot: 0,
+          winningsPerWinner: 0,
+          winners: [],
+          nonParticipants: [],
+        }
+      : {
+          id: randomUUID(),
+          game: "roulette",
+          phase: "betting",
+          addMoney,
+          minimumBet,
+          zeroes,
+          betComplexity,
+          startedAt: now,
+          bettingEndsAt: addMilliseconds(now, ROULETTE_BETTING_DURATION_MS),
+          spinEndsAt: null,
+          resultsEndsAt: null,
+          wheelPockets: getRouletteWheelPockets(zeroes),
+          winningPocket: null,
+          bets: [],
+          results: [],
+          message: `Roulette board configured with ${formatRouletteZeroes(zeroes)}. ${betComplexity === "simple" ? "Simple mode limits bets to red or black." : betComplexity === "intermediate" ? "Intermediate mode allows straight numbers plus red or black." : "Advanced mode unlocks the full table."}`,
+        };
+
+  return {
+    ...lobby,
+    players,
+    totalRoundMoneyAllocated: lobby.totalRoundMoneyAllocated + addMoney * players.length,
+    currentRound,
+    updatedAt: now,
+  };
+}
+
 function requireLobbyPlayer(lobby: LobbySnapshot, sessionId: string) {
   const player = lobby.players.find((entry) => entry.sessionId === sessionId);
 
@@ -883,6 +950,39 @@ function clearFinishedRound(lobby: LobbySnapshot, timestamp: string): LobbySnaps
   };
 }
 
+function makeSimulationResultsVisible(lobby: LobbySnapshot, timestamp: string): LobbySnapshot {
+  const currentRound = lobby.currentRound;
+
+  if (!currentRound || currentRound.phase !== "results") {
+    return {
+      ...lobby,
+      updatedAt: timestamp,
+    };
+  }
+
+  if (currentRound.game === "dice") {
+    return {
+      ...lobby,
+      currentRound: {
+        ...currentRound,
+        bettingEndsAt: addMilliseconds(timestamp, -DICE_STAGE_DURATION_MS),
+        resultsEndsAt: addMilliseconds(timestamp, RESULTS_DISPLAY_DURATION_MS),
+      },
+      updatedAt: timestamp,
+    };
+  }
+
+  return {
+    ...lobby,
+    currentRound: {
+      ...currentRound,
+      spinEndsAt: addMilliseconds(timestamp, -2_000),
+      resultsEndsAt: addMilliseconds(timestamp, ROULETTE_RESULTS_DURATION_MS),
+    },
+    updatedAt: timestamp,
+  };
+}
+
 export function summarizeLobby(lobby: LobbySnapshot): LobbySummary {
   return lobby;
 }
@@ -1065,17 +1165,9 @@ export async function startGameRound(
   sessionId: string,
   input: StartRoundInput,
 ): Promise<LobbySnapshot> {
-  const addMoney = toNonNegativeInteger(input.addMoney, "Add money");
-  const minimumBet = toNonNegativeInteger(input.minimumBet, "Minimum bet");
-
   if (input.game !== "dice" && input.game !== "roulette") {
     throw new LobbyError("INVALID_GAME", "Choose a valid game type.", 400);
   }
-
-  const cheatersPercent = input.game === "dice" ? toPercentage(input.cheatersPercent, "Cheaters") : 0;
-  const edgePercent = input.game === "dice" ? toPercentage(input.edgePercent, "Edge") : 0;
-  const zeroes = input.game === "roulette" ? toZeroCount(input.zeroes) : 0;
-  const betComplexity = input.game === "roulette" ? input.betComplexity : "simple";
 
   return withLobbyMutationLock(lobbyId, async () => {
     const lobby = await getLobbyById(lobbyId);
@@ -1093,59 +1185,274 @@ export async function startGameRound(
     }
 
     const now = nowIso();
-    const players = creditAllPlayers(lobby.players, addMoney);
-
-    const currentRound: LobbyRound =
-      input.game === "dice"
-        ? {
-            id: randomUUID(),
-            game: "dice",
-            phase: "betting",
-            addMoney,
-            minimumBet,
-            cheatersPercent,
-            edgePercent,
-            startedAt: now,
-            bettingEndsAt: addMilliseconds(now, BETTING_DURATION_MS),
-            resultsEndsAt: null,
-            rules: DICE_RULES,
-            bets: [],
-            results: [],
-            pot: 0,
-            winningsPerWinner: 0,
-            winners: [],
-            nonParticipants: [],
-          }
-        : {
-            id: randomUUID(),
-            game: "roulette",
-            phase: "betting",
-            addMoney,
-            minimumBet,
-            zeroes,
-            betComplexity,
-            startedAt: now,
-            bettingEndsAt: addMilliseconds(now, ROULETTE_BETTING_DURATION_MS),
-            spinEndsAt: null,
-            resultsEndsAt: null,
-            wheelPockets: getRouletteWheelPockets(zeroes),
-            winningPocket: null,
-            bets: [],
-            results: [],
-            message: `Roulette board configured with ${formatRouletteZeroes(zeroes)}. ${betComplexity === "simple" ? "Simple mode limits bets to red or black." : betComplexity === "intermediate" ? "Intermediate mode allows straight numbers plus red or black." : "Advanced mode unlocks the full table."}`,
-          };
-
-    const nextLobby: LobbySnapshot = {
-      ...lobby,
-      players,
-      totalRoundMoneyAllocated: lobby.totalRoundMoneyAllocated + addMoney * players.length,
-      currentRound,
-      updatedAt: now,
-    };
+    const nextLobby = buildStartedRoundLobby(lobby, input, now);
 
     await saveLobby(nextLobby);
     return nextLobby;
   });
+}
+
+export async function simulateLobbyRounds(
+  lobbyId: string,
+  sessionId: string,
+  input: StartRoundInput,
+  roundCount: number,
+  targetPlayerCount = 30,
+): Promise<{ lobby: LobbySnapshot; completedRounds: CompletedLobbyRound[] }> {
+  if (input.game !== "dice" && input.game !== "roulette") {
+    throw new LobbyError("INVALID_GAME", "Choose a valid game type.", 400);
+  }
+
+  const normalizedRoundCount = Math.max(1, Math.floor(roundCount));
+
+  return withLobbyMutationLock(lobbyId, async () => {
+    let lobby = await getLobbyById(lobbyId);
+
+    if (lobby.hostSessionId !== sessionId) {
+      throw new LobbyError("NOT_HOST", "Only the host can run simulations.", 403);
+    }
+
+    if (lobby.status !== "started") {
+      throw new LobbyError("LOBBY_NOT_STARTED", "Start the lobby before running simulations.", 409);
+    }
+
+    if (lobby.currentRound) {
+      throw new LobbyError("ROUND_ALREADY_ACTIVE", "Finish the current round before running simulations.", 409);
+    }
+
+    const existingSimulatedCount = lobby.players.filter((player) => isSimulatedSessionId(player.sessionId)).length;
+    const missingSimulatedCount = Math.max(0, targetPlayerCount - lobby.players.length);
+    const joinTimestamp = nowIso();
+
+    if (missingSimulatedCount > 0) {
+      const additionalPlayers = Array.from({ length: missingSimulatedCount }, (_, offset) => {
+        const index = existingSimulatedCount + offset;
+        return createPlayer(
+          getSimulationSessionId(lobbyId, index),
+          `Sim ${String(index + 1).padStart(2, "0")}`,
+          false,
+          joinTimestamp,
+        );
+      });
+
+      lobby = {
+        ...lobby,
+        players: [...lobby.players, ...additionalPlayers],
+        updatedAt: joinTimestamp,
+      };
+    }
+
+    type PlayerBetReplayPlan = {
+      bankrollBeforeBet: number;
+      placementKeys: string[];
+      totalStake: number;
+    };
+
+    const completedRounds: CompletedLobbyRound[] = [];
+    let previousPlans: Map<string, PlayerBetReplayPlan> | null = null;
+
+    const getRoundedReplayStake = (balance: number, minimumBet: number, previousPlan: PlayerBetReplayPlan) => {
+      if (minimumBet <= 0 || balance < minimumBet || previousPlan.totalStake < minimumBet || previousPlan.bankrollBeforeBet <= 0) {
+        return 0;
+      }
+
+      const maxAffordableStake = Math.floor(balance / minimumBet) * minimumBet;
+      const previousStakeFraction = previousPlan.totalStake / previousPlan.bankrollBeforeBet;
+
+      if (previousStakeFraction <= 0) {
+        return 0;
+      }
+
+      const scaledStake = Math.floor((balance * previousStakeFraction) / minimumBet) * minimumBet;
+      const nextStake = scaledStake >= minimumBet ? scaledStake : minimumBet;
+
+      return Math.min(maxAffordableStake, nextStake);
+    };
+
+    const getRepeatedRoulettePlacementKeys = (previousPlan: PlayerBetReplayPlan, nextChipCount: number) => {
+      if (nextChipCount <= 0 || previousPlan.placementKeys.length === 0) {
+        return [];
+      }
+
+      const counts = previousPlan.placementKeys.reduce<Map<string, number>>((current, key) => {
+        current.set(key, (current.get(key) ?? 0) + 1);
+        return current;
+      }, new Map());
+      const totalPreviousChips = previousPlan.placementKeys.length;
+      const allocations = Array.from(counts.entries()).map(([key, count]) => {
+        const exact = (nextChipCount * count) / totalPreviousChips;
+        const base = Math.floor(exact);
+
+        return {
+          key,
+          base,
+          remainder: exact - base,
+        };
+      });
+      let remainingChips = nextChipCount - allocations.reduce((total, entry) => total + entry.base, 0);
+
+      allocations
+        .sort((left, right) => right.remainder - left.remainder || left.key.localeCompare(right.key))
+        .forEach((entry) => {
+          if (remainingChips <= 0) {
+            return;
+          }
+
+          entry.base += 1;
+          remainingChips -= 1;
+        });
+
+      return allocations.flatMap((entry) => Array.from({ length: entry.base }, () => entry.key));
+    };
+
+    const getInitialRoulettePlacementKeys = (player: LobbyPlayer, minimumBet: number) => {
+      if (minimumBet <= 0 || player.balance < minimumBet) {
+        return [];
+      }
+
+      const targetStake = Math.floor(player.balance / 2 / minimumBet) * minimumBet;
+
+      if (targetStake < minimumBet) {
+        return [];
+      }
+
+      const chipCount = Math.floor(targetStake / minimumBet);
+      const colorKey = Math.random() < 0.5 ? "color:red" : "color:black";
+
+      return Array.from({ length: chipCount }, () => colorKey);
+    };
+
+    for (let roundIndex = 0; roundIndex < normalizedRoundCount; roundIndex += 1) {
+      const roundStartTimestamp = nowIso();
+      lobby = buildStartedRoundLobby(lobby, input, roundStartTimestamp);
+      const currentRound = lobby.currentRound;
+
+      if (!currentRound || currentRound.phase !== "betting") {
+        throw new LobbyError("ROUND_NOT_ACTIVE", "Unable to prepare a simulation round.", 409);
+      }
+
+      const nextPlans = new Map<string, PlayerBetReplayPlan>();
+
+      if (currentRound.game === "dice") {
+        const placedBets = [] as DiceBet[];
+        const nextPlayers = lobby.players.map((player) => {
+          const previousPlan = previousPlans?.get(player.sessionId) ?? null;
+          const shouldPlaceBet = previousPlans === null
+            ? player.balance >= currentRound.minimumBet
+            : Boolean(previousPlan && previousPlan.totalStake >= currentRound.minimumBet && player.balance >= currentRound.minimumBet);
+
+          if (!shouldPlaceBet) {
+            return player;
+          }
+
+          nextPlans.set(player.sessionId, {
+            bankrollBeforeBet: player.balance,
+            placementKeys: [],
+            totalStake: currentRound.minimumBet,
+          });
+          placedBets.push({
+            sessionId: player.sessionId,
+            displayName: player.displayName,
+            bet: currentRound.minimumBet,
+            placedAt: roundStartTimestamp,
+            isCheater: false,
+          });
+
+          return {
+            ...player,
+            balance: player.balance - currentRound.minimumBet,
+          };
+        });
+
+        lobby = {
+          ...lobby,
+          players: nextPlayers,
+          currentRound: {
+            ...currentRound,
+            bets: placedBets,
+          },
+          updatedAt: roundStartTimestamp,
+        };
+      } else {
+        const definitions = getRouletteBetDefinitionMap(currentRound.zeroes);
+        const nextBets: RouletteBet[] = [];
+        const nextPlayers = lobby.players.map((player) => {
+          const previousPlan = previousPlans?.get(player.sessionId) ?? null;
+          const placementKeys = previousPlan
+            ? getRepeatedRoulettePlacementKeys(
+                previousPlan,
+                Math.floor(getRoundedReplayStake(player.balance, currentRound.minimumBet, previousPlan) / currentRound.minimumBet),
+              )
+            : getInitialRoulettePlacementKeys(player, currentRound.minimumBet);
+
+          if (placementKeys.length === 0) {
+            return player;
+          }
+
+          const totalStake = placementKeys.length * currentRound.minimumBet;
+          nextPlans.set(player.sessionId, {
+            bankrollBeforeBet: player.balance,
+            placementKeys,
+            totalStake,
+          });
+
+          placementKeys.forEach((key) => {
+            const placement = definitions.get(key);
+
+            if (!placement) {
+              return;
+            }
+
+            nextBets.push({
+              sessionId: player.sessionId,
+              displayName: player.displayName,
+              amount: currentRound.minimumBet,
+              placedAt: roundStartTimestamp,
+              betKey: placement.key,
+              label: placement.label,
+              type: placement.type,
+              payoutMultiplier: placement.payoutMultiplier,
+              pockets: placement.pockets,
+            });
+          });
+
+          return {
+            ...player,
+            balance: player.balance - totalStake,
+          };
+        });
+
+        lobby = {
+          ...lobby,
+          players: nextPlayers,
+          currentRound: {
+            ...currentRound,
+            bets: nextBets,
+          },
+          updatedAt: roundStartTimestamp,
+        };
+      }
+
+      previousPlans = nextPlans;
+      const resolvedTimestamp = nowIso();
+      lobby = currentRound.game === "dice"
+        ? resolveDiceRound(lobby, resolvedTimestamp)
+        : resolveRouletteRound(lobby, resolvedTimestamp);
+
+      if (lobby.currentRound?.phase === "results") {
+        completedRounds.push(lobby.currentRound as CompletedLobbyRound);
+      }
+
+      const isLastRound = roundIndex === normalizedRoundCount - 1;
+
+      lobby = isLastRound
+        ? makeSimulationResultsVisible(lobby, nowIso())
+        : clearFinishedRound(lobby, nowIso());
+    }
+
+    await saveLobby(lobby);
+    return { lobby, completedRounds };
+  }, 10_000);
 }
 
 export async function placeRoundBet(

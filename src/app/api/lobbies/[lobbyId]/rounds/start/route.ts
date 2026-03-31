@@ -1,5 +1,5 @@
-import type { LobbyPlayer, LobbySnapshot } from "@/lib/lobby";
-import { forceResolveCurrentRound, getLobbyById, joinLobby, lobbyErrorToResponse, placeRoundBet, returnLobbyToSetup, startGameRound, summarizeLobby } from "@/lib/lobby";
+import type { LobbySnapshot } from "@/lib/lobby";
+import { getLobbyById, joinLobby, lobbyErrorToResponse, placeRoundBet, simulateLobbyRounds, startGameRound, summarizeLobby } from "@/lib/lobby";
 import { publishLobbyUpdated } from "@/lib/realtime";
 import { ensureSessionId } from "@/lib/session";
 
@@ -23,12 +23,6 @@ type StartRoundBody = {
 const DEVELOPMENT_SIMULATION_TARGET_PLAYERS = 30;
 const DEVELOPMENT_SIMULATION_ROUND_COUNT = 10;
 const DEVELOPMENT_SIMULATION_PREFIX = "sim:";
-
-type PlayerBetReplayPlan = {
-  bankrollBeforeBet: number;
-  placementKeys: string[];
-  totalStake: number;
-};
 
 type StartRoundConfig = {
   game: "dice" | "roulette";
@@ -135,193 +129,6 @@ function canRunDevelopmentSimulationLobby(lobby: LobbySnapshot, hostSessionId: s
   return lobby.players.every((player) => player.sessionId === hostSessionId || isSimulatedSession(player.sessionId));
 }
 
-function getRoundedReplayStake(balance: number, minimumBet: number, previousPlan: PlayerBetReplayPlan) {
-  if (minimumBet <= 0 || balance < minimumBet || previousPlan.totalStake < minimumBet || previousPlan.bankrollBeforeBet <= 0) {
-    return 0;
-  }
-
-  const maxAffordableStake = Math.floor(balance / minimumBet) * minimumBet;
-  const previousStakeFraction = previousPlan.totalStake / previousPlan.bankrollBeforeBet;
-
-  if (previousStakeFraction <= 0) {
-    return 0;
-  }
-
-  const scaledStake = Math.floor((balance * previousStakeFraction) / minimumBet) * minimumBet;
-  const nextStake = scaledStake >= minimumBet ? scaledStake : minimumBet;
-
-  return Math.min(maxAffordableStake, nextStake);
-}
-
-function getRepeatedRoulettePlacementKeys(previousPlan: PlayerBetReplayPlan, nextChipCount: number) {
-  if (nextChipCount <= 0 || previousPlan.placementKeys.length === 0) {
-    return [];
-  }
-
-  const counts = previousPlan.placementKeys.reduce<Map<string, number>>((current, key) => {
-    current.set(key, (current.get(key) ?? 0) + 1);
-    return current;
-  }, new Map());
-  const totalPreviousChips = previousPlan.placementKeys.length;
-  const allocations = Array.from(counts.entries()).map(([key, count]) => {
-    const exact = (nextChipCount * count) / totalPreviousChips;
-    const base = Math.floor(exact);
-
-    return {
-      key,
-      base,
-      remainder: exact - base,
-    };
-  });
-  let remainingChips = nextChipCount - allocations.reduce((total, entry) => total + entry.base, 0);
-
-  allocations
-    .sort((left, right) => right.remainder - left.remainder || left.key.localeCompare(right.key))
-    .forEach((entry, index) => {
-      if (remainingChips <= 0) {
-        return;
-      }
-
-      entry.base += 1;
-      remainingChips -= 1;
-
-      if (remainingChips <= 0) {
-        return;
-      }
-
-      allocations[index] = entry;
-    });
-
-  return allocations.flatMap((entry) => Array.from({ length: entry.base }, () => entry.key));
-}
-
-function getInitialRoulettePlacementKeys(player: LobbyPlayer, minimumBet: number) {
-  if (minimumBet <= 0 || player.balance < minimumBet) {
-    return [];
-  }
-
-  const targetStake = Math.floor(player.balance / 2 / minimumBet) * minimumBet;
-
-  if (targetStake < minimumBet) {
-    return [];
-  }
-
-  const chipCount = Math.floor(targetStake / minimumBet);
-  const colorKey = Math.random() < 0.5 ? "color:red" : "color:black";
-
-  return Array.from({ length: chipCount }, () => colorKey);
-}
-
-async function placeDevelopmentReplayBets(
-  lobbyId: string,
-  game: "dice" | "roulette",
-  previousPlans: Map<string, PlayerBetReplayPlan> | null,
-) {
-  let lobby = await getLobbyById(lobbyId);
-  const currentRound = lobby.currentRound;
-
-  if (!currentRound || currentRound.phase !== "betting") {
-    return { lobby, nextPlans: new Map<string, PlayerBetReplayPlan>() };
-  }
-
-  const nextPlans = new Map<string, PlayerBetReplayPlan>();
-
-  for (const player of lobby.players) {
-    if (!lobby.currentRound || lobby.currentRound.phase !== "betting") {
-      break;
-    }
-
-    const currentPlayer = lobby.players.find((entry) => entry.sessionId === player.sessionId);
-    const activeRound = lobby.currentRound;
-
-    if (!currentPlayer || activeRound.game !== game) {
-      continue;
-    }
-
-    if (game === "dice") {
-      const previousPlan = previousPlans?.get(currentPlayer.sessionId) ?? null;
-      const shouldPlaceBet = previousPlans === null ? currentPlayer.balance >= activeRound.minimumBet : Boolean(previousPlan && previousPlan.totalStake >= activeRound.minimumBet && currentPlayer.balance >= activeRound.minimumBet);
-
-      if (!shouldPlaceBet) {
-        continue;
-      }
-
-      nextPlans.set(currentPlayer.sessionId, {
-        bankrollBeforeBet: currentPlayer.balance,
-        placementKeys: [],
-        totalStake: activeRound.minimumBet,
-      });
-      lobby = await placeRoundBet(lobbyId, currentPlayer.sessionId, { game: "dice" });
-      continue;
-    }
-
-    const previousPlan = previousPlans?.get(currentPlayer.sessionId) ?? null;
-    const placementKeys = previousPlan
-      ? getRepeatedRoulettePlacementKeys(
-          previousPlan,
-          Math.floor(getRoundedReplayStake(currentPlayer.balance, activeRound.minimumBet, previousPlan) / activeRound.minimumBet),
-        )
-      : getInitialRoulettePlacementKeys(currentPlayer, activeRound.minimumBet);
-
-    if (placementKeys.length === 0) {
-      continue;
-    }
-
-    nextPlans.set(currentPlayer.sessionId, {
-      bankrollBeforeBet: currentPlayer.balance,
-      placementKeys,
-      totalStake: placementKeys.length * activeRound.minimumBet,
-    });
-    lobby = await placeRoundBet(lobbyId, currentPlayer.sessionId, {
-      game: "roulette",
-      placementKeys,
-    });
-  }
-
-  return { lobby, nextPlans };
-}
-
-async function simulateDevelopmentReplayRounds(
-  lobbyId: string,
-  hostSessionId: string,
-  config: StartRoundConfig,
-  roundCount: number,
-) {
-  let previousPlans: Map<string, PlayerBetReplayPlan> | null = null;
-  let latestLobby = await getLobbyById(lobbyId);
-
-  for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
-    latestLobby = await startGameRound(
-      lobbyId,
-      hostSessionId,
-      config.game === "dice"
-        ? {
-            game: config.game,
-            addMoney: config.addMoney,
-            minimumBet: config.minimumBet,
-            cheatersPercent: config.cheatersPercent,
-            edgePercent: config.edgePercent,
-          }
-        : {
-            game: config.game,
-            addMoney: config.addMoney,
-            minimumBet: config.minimumBet,
-            zeroes: config.zeroes,
-            betComplexity: config.betComplexity,
-          },
-    );
-
-    const replayResult = await placeDevelopmentReplayBets(lobbyId, config.game, previousPlans);
-    latestLobby = replayResult.lobby;
-    previousPlans = replayResult.nextPlans;
-
-    latestLobby = await forceResolveCurrentRound(lobbyId);
-    latestLobby = await returnLobbyToSetup(lobbyId, hostSessionId);
-  }
-
-  return latestLobby;
-}
-
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { lobbyId } = await context.params;
@@ -355,9 +162,13 @@ export async function POST(request: Request, context: RouteContext) {
       }
 
       const simulationLobby = await ensureDevelopmentSimulatedPlayers(lobbyId, sessionId, true);
-      const lobby = await simulateDevelopmentReplayRounds(simulationLobby.lobbyId, sessionId, config, requestedSimulationRounds);
-      await publishLobbyUpdated(lobby);
-      return Response.json({ lobby: summarizeLobby(lobby), serverTime: new Date().toISOString() });
+      const result = await simulateLobbyRounds(simulationLobby.lobbyId, sessionId, config, requestedSimulationRounds, DEVELOPMENT_SIMULATION_TARGET_PLAYERS);
+      await publishLobbyUpdated(result.lobby);
+      return Response.json({
+        lobby: summarizeLobby(result.lobby),
+        completedRounds: result.completedRounds,
+        serverTime: new Date().toISOString(),
+      });
     }
 
     const startedLobby = await startGameRound(
