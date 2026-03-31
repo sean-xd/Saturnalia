@@ -301,16 +301,28 @@ function sortRouletteBetDefinitions(definitions: RouletteBetDefinition[]) {
   return [...definitions].sort(compareRouletteBetDefinitions);
 }
 
-function getRouletteBetExpectedValue(definition: RouletteBetDefinition, zeroes: number) {
+function getRouletteBetExpectedValueParts(definition: RouletteBetDefinition, zeroes: number) {
   const totalPockets = 36 + Math.max(0, zeroes);
   const winCount = definition.pockets.length;
   const loseCount = totalPockets - winCount;
+
+  return { loseCount, totalPockets, winCount };
+}
+
+function getRouletteBetExpectedValue(definition: RouletteBetDefinition, zeroes: number) {
+  const { loseCount, totalPockets, winCount } = getRouletteBetExpectedValueParts(definition, zeroes);
 
   return (definition.payoutMultiplier * winCount - loseCount) / totalPockets;
 }
 
 function formatRouletteBetExpectedValue(value: number) {
-  return `${value > 0 ? "+" : ""}${value.toFixed(4)}`;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
+}
+
+function getRouletteBetExpectedValueTooltip(definition: RouletteBetDefinition, zeroes: number) {
+  const { loseCount, totalPockets, winCount } = getRouletteBetExpectedValueParts(definition, zeroes);
+
+  return `EV = ((${definition.payoutMultiplier} × ${winCount}) - ${loseCount}) / ${totalPockets} = ${formatRouletteBetExpectedValue(getRouletteBetExpectedValue(definition, zeroes))} net profit per $1 staked (excluding the original stake)`;
 }
 
 function compareRouletteResults(left: RouletteResult, right: RouletteResult) {
@@ -1047,9 +1059,6 @@ export function LobbyClient({
   ) {
     const selectionCount = getRouletteSelectionCount(selectedRouletteBetKeys, definition.key);
     const wager = selectionCount * minimumBet;
-    const totalPockets = 36 + Math.max(0, zeroes);
-    const winCount = definition.pockets.length;
-    const loseCount = totalPockets - winCount;
     const expectedValue = getRouletteBetExpectedValue(definition, zeroes);
 
     return (
@@ -1057,11 +1066,7 @@ export function LobbyClient({
         className={`${styles.rouletteBetControl} ${selectionCount > 0 ? styles.rouletteBetButtonActive : ""} ${extraClassName ?? ""}`.trim()}
         key={definition.key}
         style={style}
-        title={
-          showExpectedValue
-            ? `EV = (${definition.payoutMultiplier} × ${winCount}/${totalPockets}) - (${loseCount}/${totalPockets}) = ${formatRouletteBetExpectedValue(expectedValue)} net per $1 staked`
-            : undefined
-        }
+        title={showExpectedValue ? getRouletteBetExpectedValueTooltip(definition, zeroes) : undefined}
       >
         <button
           aria-label={`Remove chip from ${definition.label}`}
