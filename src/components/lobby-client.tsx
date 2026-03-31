@@ -1865,7 +1865,7 @@ export function LobbyClient({
         {showBetOdds ? (
           <span
             className={`${styles.infoChip} ${styles.rouletteEvChip}`}
-            title="Win chance shows how often bets in this section hit over many spins. Mixed sections display the lowest-to-highest hit rate across the bets in that group."
+            title="Win chance shows how often bets in this section hit over many spins. Mixed sections display the lowest to highest hit rate across the bets in that group."
           >
             Win {getRouletteBetWinProbabilitySummary(sectionDefinitions, round.zeroes)}
           </span>
