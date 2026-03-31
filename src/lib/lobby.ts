@@ -1221,7 +1221,12 @@ export async function simulateLobbyRounds(
     }
 
     const existingSimulatedCount = lobby.players.filter((player) => isSimulatedSessionId(player.sessionId)).length;
-    const missingSimulatedCount = Math.max(0, targetPlayerCount - lobby.players.length);
+    const hasRealNonHostPlayers = lobby.players.some(
+      (player) => player.sessionId !== lobby.hostSessionId && !isSimulatedSessionId(player.sessionId),
+    );
+    const missingSimulatedCount = hasRealNonHostPlayers
+      ? 0
+      : Math.max(0, targetPlayerCount - lobby.players.length);
     const joinTimestamp = nowIso();
 
     if (missingSimulatedCount > 0) {

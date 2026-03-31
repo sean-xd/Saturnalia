@@ -54,7 +54,7 @@ async function ensureDevelopmentSimulatedPlayers(lobbyId: string, hostSessionId:
   let lobby = await getLobbyById(lobbyId);
   const nonSimulatedNonHostPlayers = lobby.players.filter((player) => player.sessionId !== hostSessionId && !isSimulatedSession(player.sessionId));
 
-  if (!allowWithRealPlayers && nonSimulatedNonHostPlayers.length > 0) {
+  if (nonSimulatedNonHostPlayers.length > 0) {
     return lobby;
   }
 
