@@ -94,7 +94,6 @@ export function HomeClient() {
           </p>
           <div className={styles.badges}>
             <span>Probability</span>
-            <span>Expected Value</span>
             <span>Manipulation</span>
           </div>
         </div>

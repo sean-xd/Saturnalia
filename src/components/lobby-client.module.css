@@ -847,11 +847,6 @@
   line-height: 1.35;
 }
 
-.rouletteEvChip {
-  align-self: start;
-  margin-left: 0;
-  cursor: help;
-}
 
 .rouletteZeroRow,
 .rouletteNumberGrid,
