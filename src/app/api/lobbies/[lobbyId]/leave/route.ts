@@ -1,4 +1,4 @@
-import { leaveLobby, lobbyErrorToResponse } from "@/lib/lobby";
+import { leaveLobby, lobbyErrorToResponse, summarizeLobby } from "@/lib/lobby";
 import { publishLobbyUpdated } from "@/lib/realtime";
 import { ensureSessionId } from "@/lib/session";
 
@@ -25,7 +25,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     return Response.json({
       deleted: false,
-      lobby: result.lobby,
+      lobby: summarizeLobby(result.lobby),
       serverTime: new Date().toISOString(),
     });
   } catch (error) {

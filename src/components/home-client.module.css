@@ -8,6 +8,13 @@
   padding: 16px 0 28px;
 }
 
+.heroInner {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
 .kicker {
   margin-bottom: 12px;
   color: var(--accent-strong);
@@ -34,6 +41,7 @@
 .badges {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
   margin-top: 26px;
 }
@@ -50,6 +58,12 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px;
+}
+
+.panelInner {
+  display: grid;
+  gap: 18px;
+  width: 100%;
 }
 
 .form {
@@ -163,21 +177,28 @@
 
 @media (min-width: 821px) {
   .page {
-    width: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    width: 100%;
     max-width: none;
     margin: 0;
     min-height: 100dvh;
-    padding: 64px 0 80px;
+    padding: 0;
+    align-items: stretch;
   }
 
   .hero {
-    width: min(50vw - 48px, 640px);
-    min-height: calc(100dvh - 144px);
+    min-height: 100dvh;
     display: flex;
-    flex-direction: column;
     justify-content: center;
-    padding: 28px 0 40px;
-    margin-left: 32px;
+    align-items: center;
+    padding: 64px;
+    margin: 0;
+  }
+
+  .heroInner {
+    max-width: 640px;
   }
 
   .summary {
@@ -187,27 +208,27 @@
   }
 
   .panelGrid {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 50vw;
-    min-width: 520px;
-    max-width: 720px;
-    height: 100dvh;
-    padding: 24px;
-    grid-template-columns: 1fr;
-    align-content: center;
+    min-height: 100dvh;
+    padding: 64px 40px;
+    justify-items: center;
+    align-items: center;
     border-left: 1px solid var(--surface-border);
     background: linear-gradient(180deg, rgba(251, 245, 234, 0.98) 0%, rgba(245, 233, 217, 0.98) 100%);
-    box-shadow: -24px 0 80px rgba(92, 54, 34, 0.08);
+    box-shadow: var(--shadow);
+  }
+
+  .panelInner {
+    max-width: 560px;
   }
 
   .card {
     padding: 26px;
     border-radius: 28px;
-    max-width: 560px;
     width: 100%;
-    justify-self: center;
+  }
+
+  .error {
+    margin-top: 0;
   }
 
   .cardHeader {

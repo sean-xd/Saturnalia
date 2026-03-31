@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LobbyClient } from "@/components/lobby-client";
 import { getConfiguredBaseUrl } from "@/lib/env";
-import { LobbyError, getLobbyById } from "@/lib/lobby";
+import { LobbyError, getLobbySummaryById } from "@/lib/lobby";
 import { isRealtimeEnabled } from "@/lib/realtime";
 import { getSessionId } from "@/lib/session";
 
@@ -28,7 +28,7 @@ export default async function LobbyPage({ params }: LobbyPageProps) {
   let lobby;
 
   try {
-    lobby = await getLobbyById(lobbyId);
+    lobby = await getLobbySummaryById(lobbyId);
   } catch (error) {
     if (error instanceof LobbyError && error.code === "LOBBY_NOT_FOUND") {
       notFound();

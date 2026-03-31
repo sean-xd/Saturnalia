@@ -1,4 +1,4 @@
-import { getLobbyById, lobbyErrorToResponse, syncLobbyRoundState } from "@/lib/lobby";
+import { getLobbySummaryById, lobbyErrorToResponse, summarizeLobby, syncLobbyRoundState } from "@/lib/lobby";
 import { publishLobbyUpdated } from "@/lib/realtime";
 
 type RouteContext = {
@@ -14,10 +14,10 @@ export async function GET(_request: Request, context: RouteContext) {
 
     if (result.changed) {
       await publishLobbyUpdated(result.lobby);
-      return Response.json({ lobby: result.lobby, serverTime: new Date().toISOString(), synchronized: true });
+      return Response.json({ lobby: summarizeLobby(result.lobby), serverTime: new Date().toISOString(), synchronized: true });
     }
 
-    const lobby = await getLobbyById(lobbyId);
+    const lobby = await getLobbySummaryById(lobbyId);
     return Response.json({ lobby, serverTime: new Date().toISOString(), synchronized: false });
   } catch (error) {
     return lobbyErrorToResponse(error);

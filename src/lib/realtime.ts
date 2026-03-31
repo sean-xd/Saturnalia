@@ -50,7 +50,7 @@ export async function publishLobbyUpdated(lobby: LobbySnapshot) {
   }
 
   await getPusherServer().trigger(getLobbyChannelName(lobby.lobbyId), "lobby.updated", {
-    lobby,
+    lobbyId: lobby.lobbyId,
     serverTime: new Date().toISOString(),
   });
 }

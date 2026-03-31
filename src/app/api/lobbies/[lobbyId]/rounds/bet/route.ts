@@ -1,4 +1,4 @@
-import { lobbyErrorToResponse, placeRoundBet, syncLobbyRoundState } from "@/lib/lobby";
+import { lobbyErrorToResponse, placeRoundBet, summarizeLobby, syncLobbyRoundState } from "@/lib/lobby";
 import { publishLobbyUpdated } from "@/lib/realtime";
 import { ensureSessionId } from "@/lib/session";
 
@@ -8,20 +8,39 @@ type RouteContext = {
   }>;
 };
 
-export async function POST(_request: Request, context: RouteContext) {
+type BetRoundBody = {
+  game?: "dice" | "roulette";
+  placementKeys?: string[];
+};
+
+export async function POST(request: Request, context: RouteContext) {
   try {
     const { lobbyId } = await context.params;
     const sessionId = await ensureSessionId();
-    const synchronized = await syncLobbyRoundState(lobbyId);
+    const body = (await request.json().catch(() => ({}))) as BetRoundBody;
+    const isRouletteBet = body.game === "roulette";
 
-    if (synchronized.changed) {
-      await publishLobbyUpdated(synchronized.lobby);
+    if (!isRouletteBet) {
+      const synchronized = await syncLobbyRoundState(lobbyId);
+
+      if (synchronized.changed) {
+        await publishLobbyUpdated(synchronized.lobby);
+      }
     }
 
-    const lobby = await placeRoundBet(lobbyId, sessionId);
+    const lobby = await placeRoundBet(
+      lobbyId,
+      sessionId,
+      isRouletteBet
+        ? {
+            game: "roulette",
+            placementKeys: body.placementKeys ?? [],
+          }
+        : { game: "dice" },
+    );
     await publishLobbyUpdated(lobby);
 
-    return Response.json({ lobby, serverTime: new Date().toISOString() });
+    return Response.json({ lobby: summarizeLobby(lobby), serverTime: new Date().toISOString() });
   } catch (error) {
     return lobbyErrorToResponse(error);
   }
