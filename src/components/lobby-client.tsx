@@ -301,12 +301,6 @@ function sortRouletteBetDefinitions(definitions: RouletteBetDefinition[]) {
   return [...definitions].sort(compareRouletteBetDefinitions);
 }
 
-function getRouletteBetExpectedValue(definition: RouletteBetDefinition, zeroes: number) {
-  const totalPockets = 36 + Math.max(0, zeroes);
-
-  return ((definition.payoutMultiplier + 1) * definition.pockets.length) / totalPockets;
-}
-
 function compareRouletteResults(left: RouletteResult, right: RouletteResult) {
   const leftNet = left.payout - left.totalBet;
   const rightNet = right.payout - right.totalBet;
@@ -1833,25 +1827,12 @@ export function LobbyClient({
     const totalStake = selectedDefinitions.length * round.minimumBet;
     const remainingFunds = Math.max(0, (viewer?.balance ?? 0) - totalStake);
     const canAddChip = !isRouletteBetLocked && !isRouletteBetSaving && remainingFunds >= round.minimumBet;
-    const showExpectedValue = round.betComplexity === "advanced";
-    const renderRouletteSectionHeader = (
-      title: string,
-      subtitle: string,
-      sampleDefinition?: RouletteBetDefinition,
-    ) => (
+    const renderRouletteSectionHeader = (title: string, subtitle: string) => (
       <div className={styles.rouletteBoardHeader}>
         <div className={styles.rouletteBoardHeading}>
           <strong>{title}</strong>
           <span>{subtitle}</span>
         </div>
-        {showExpectedValue && sampleDefinition ? (
-          <span
-            className={`${styles.infoChip} ${styles.rouletteEvChip}`}
-            title="Expected value is the average return per $1 staked over many spins, including your original chip. Values below 1.00 mean the house edge is against the player."
-          >
-            EV {getRouletteBetExpectedValue(sampleDefinition, round.zeroes).toFixed(2)}
-          </span>
-        ) : null}
       </div>
     );
 
@@ -1920,7 +1901,6 @@ export function LobbyClient({
                   {renderRouletteSectionHeader(
                     "Simple Bets",
                     "Pick red or black. Covers 18 numbers and pays 1:1.",
-                    colorBets[0],
                   )}
                   <div className={styles.rouletteOptionGrid}>
                     {colorBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -1932,7 +1912,6 @@ export function LobbyClient({
                     {renderRouletteSectionHeader(
                       "Color Bets",
                       "Pick red or black. Covers 18 numbers and pays 1:1.",
-                      colorBets[0],
                     )}
                     <div className={styles.rouletteOptionGrid}>
                       {colorBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -1943,7 +1922,6 @@ export function LobbyClient({
                     {renderRouletteSectionHeader(
                       "Straight Up",
                       `Pick one exact pocket, including ${formatRouletteZeroes(round.zeroes)}. Covers 1 number and pays 35:1.`,
-                      straightBets[0],
                     )}
                     <div className={styles.rouletteNumberGrid}>
                       {straightBets.map((definition) => {
@@ -1970,7 +1948,6 @@ export function LobbyClient({
                     {renderRouletteSectionHeader(
                       "Color Bets",
                       "Pick red or black. Covers 18 numbers and pays 1:1.",
-                      colorBets[0],
                     )}
                     <div className={styles.rouletteOptionGrid}>
                       {colorBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -1981,7 +1958,6 @@ export function LobbyClient({
                     {renderRouletteSectionHeader(
                       "Outside Bets",
                       "Pick dozens, columns, odd or even, or low or high. Covers 12 or 18 numbers and pays 2:1 or 1:1.",
-                      otherOutsideBets[0],
                     )}
                     <div className={styles.rouletteOptionGrid}>
                       {otherOutsideBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -1993,7 +1969,6 @@ export function LobbyClient({
                       {renderRouletteSectionHeader(
                         "Six Lines",
                         "Pick two adjacent rows. Covers 6 numbers and pays 5:1.",
-                        sixLineBets[0],
                       )}
                       <div className={styles.rouletteOptionGrid}>
                         {sixLineBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -2004,7 +1979,6 @@ export function LobbyClient({
                       {renderRouletteSectionHeader(
                         "Corners",
                         "Pick a four-number square. Covers 4 numbers and pays 8:1.",
-                        cornerBets[0],
                       )}
                       <div className={styles.rouletteOptionGrid}>
                         {cornerBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -2015,7 +1989,6 @@ export function LobbyClient({
                       {renderRouletteSectionHeader(
                         "Streets",
                         "Pick one row across the table. Covers 3 numbers and pays 11:1.",
-                        streetBets[0],
                       )}
                       <div className={styles.rouletteOptionGrid}>
                         {streetBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -2026,7 +1999,6 @@ export function LobbyClient({
                       {renderRouletteSectionHeader(
                         "Splits",
                         "Pick a line between two adjacent numbers. Covers 2 numbers and pays 17:1.",
-                        splitBets[0],
                       )}
                       <div className={styles.rouletteOptionGrid}>
                         {splitBets.map((definition) => renderRouletteBetControl(definition, round.minimumBet, canAddChip))}
@@ -2038,7 +2010,6 @@ export function LobbyClient({
                     {renderRouletteSectionHeader(
                       "Straight Up",
                       `Pick one exact pocket, including ${formatRouletteZeroes(round.zeroes)}. Covers 1 number and pays 35:1.`,
-                      straightBets[0],
                     )}
                     <div className={styles.rouletteNumberGrid}>
                       {straightBets.map((definition) => {
